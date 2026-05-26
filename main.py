@@ -8,10 +8,12 @@ TEST_PRODUCT = "https://www.nbastore.eu/en/atlanta-hawks/atlanta-hawks-mitchell-
 
 def send_message(msg):
 
-    requests.post(
+    response = requests.post(
         WEBHOOK,
         json={"content": msg}
     )
+
+    print("Discord status:", response.status_code)
 
 with sync_playwright() as p:
 
@@ -23,11 +25,7 @@ with sync_playwright() as p:
     )
 
     context = browser.new_context(
-        user_agent="""
-Mozilla/5.0 (Windows NT 10.0; Win64; x64)
-AppleWebKit/537.36 (KHTML, like Gecko)
-Chrome/124.0.0.0 Safari/537.36
-"""
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
 
     page = context.new_page()
@@ -38,7 +36,7 @@ Object.defineProperty(navigator, 'webdriver', {
 })
 """)
 
-    print("Opening product...")
+    print("Opening product page...")
 
     page.goto(TEST_PRODUCT, timeout=60000)
 
@@ -46,12 +44,14 @@ Object.defineProperty(navigator, 'webdriver', {
 
     body_text = page.locator("body").inner_text()
 
-    chunk = body_text[:1500]
+    print(body_text[:3000])
 
-    print(chunk)
+    chunk = body_text[:1500]
 
     send_message(
         f"DEBUG PAGE:\n\n{chunk}"
     )
 
     browser.close()
+
+    print("BOT FINISHED")
