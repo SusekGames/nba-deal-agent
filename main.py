@@ -15,9 +15,28 @@ def send_message(msg):
 
 with sync_playwright() as p:
 
-    browser = p.chromium.launch(headless=True)
+    browser = p.chromium.launch(
+        headless=True,
+        args=[
+            "--disable-blink-features=AutomationControlled"
+        ]
+    )
 
-    page = browser.new_page()
+    context = browser.new_context(
+        user_agent="""
+Mozilla/5.0 (Windows NT 10.0; Win64; x64)
+AppleWebKit/537.36 (KHTML, like Gecko)
+Chrome/124.0.0.0 Safari/537.36
+"""
+    )
+
+    page = context.new_page()
+
+    page.add_init_script("""
+Object.defineProperty(navigator, 'webdriver', {
+    get: () => undefined
+})
+""")
 
     print("Opening product...")
 
@@ -27,13 +46,12 @@ with sync_playwright() as p:
 
     body_text = page.locator("body").inner_text()
 
-    print(body_text)
+    chunk = body_text[:1500]
 
-    # Discord ma limit długości wiadomości
-    chunk = body_text[:1800]
+    print(chunk)
 
     send_message(
-        f"DEBUG PRODUCT PAGE:\n\n{chunk}"
+        f"DEBUG PAGE:\n\n{chunk}"
     )
 
     browser.close()
