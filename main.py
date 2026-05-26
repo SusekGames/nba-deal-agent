@@ -11,18 +11,24 @@ URL = "https://www.nbastore.eu/en/men-jerseys-sale-items"
 
 DB_FILE = "sent_products.json"
 
+TARGET_SIZE = "S"
+MIN_DISCOUNT = 30
+
 def send_message(msg):
 
-    requests.post(
+    response = requests.post(
         WEBHOOK,
         json={"content": msg}
     )
+
+    print("Discord status:", response.status_code)
 
 def load_sent():
 
     try:
         with open(DB_FILE, "r") as f:
             return json.load(f)
+
     except:
         return []
 
@@ -45,6 +51,8 @@ with sync_playwright() as p:
 
     page.wait_for_timeout(10000)
 
+    print("Collecting products...")
+
     links = page.locator("a").evaluate_all(
         """elements => elements.map(el => ({
             text: el.innerText,
@@ -58,48 +66,57 @@ with sync_playwright() as p:
 
     for item in links:
 
-        text = item["text"]
-        link = item["href"]
-
-        if not text:
-            continue
-
-        if "Mitchell & Ness" not in text:
-            continue
-
-        if "Jersey" not in text:
-            continue
-
-        if not link.startswith("http"):
-            continue
-
-        if link in checked_links:
-            continue
-
-        checked_links.append(link)
-
-        prices = re.findall(r'\d+[.,]?\d*', text)
-
-        prices = [
-            float(p.replace(",", "."))
-            for p in prices
-        ]
-
-        if len(prices) < 2:
-            continue
-
-        current_price = min(prices)
-        old_price = max(prices)
-
-        discount = round(
-            100 - ((current_price / old_price) * 100),
-            2
-        )
-
-        if discount < 30:
-            continue
-
         try:
+
+            text = item["text"]
+            link = item["href"]
+
+            if not text:
+                continue
+
+            if not link:
+                continue
+
+            if "Mitchell & Ness" not in text:
+                continue
+
+            if "Jersey" not in text:
+                continue
+
+            if not link.startswith("http"):
+                continue
+
+            if link in checked_links:
+                continue
+
+            checked_links.append(link)
+
+            print(f"Checking: {link}")
+
+            prices = re.findall(r'\d+[.,]?\d*', text)
+
+            prices = [
+                float(p.replace(",", "."))
+                for p in prices
+            ]
+
+            if len(prices) < 2:
+                continue
+
+            current_price = min(prices)
+            old_price = max(prices)
+
+            discount = round(
+                100 - ((current_price / old_price) * 100),
+                2
+            )
+
+            print(
+                f"Price: {current_price} / {old_price} | Discount: {discount}%"
+            )
+
+            if discount < MIN_DISCOUNT:
+                continue
 
             product_page = browser.new_page()
 
@@ -111,15 +128,22 @@ with sync_playwright() as p:
 
             product_page.close()
 
-            if "Size:M" not in product_text and "\nM\n" not in product_text:
-                print(f"No M size: {link}")
+            if (
+                f"Size:{TARGET_SIZE}" not in product_text
+                and f"\n{TARGET_SIZE}\n" not in product_text
+            ):
+
+                print(f"Size {TARGET_SIZE} not available")
                 continue
 
             if "Out of Stock" in product_text:
-                print(f"Out of stock: {link}")
+
+                print("Product out of stock")
                 continue
 
             if link in sent_products:
+
+                print("Already sent")
                 continue
 
             message = f"""
@@ -127,7 +151,7 @@ with sync_playwright() as p:
 
 🏀 {text[:200]}
 
-📏 Size M Available
+📏 Size {TARGET_SIZE} Available
 
 💸 {current_price}€
 📉 -{discount}%
@@ -137,6 +161,8 @@ with sync_playwright() as p:
 
             send_message(message)
 
+            print("Deal sent to Discord")
+
             sent_products.append(link)
 
             found_any = True
@@ -145,14 +171,16 @@ with sync_playwright() as p:
 
         except Exception as e:
 
-            print(e)
+            print("ERROR:", e)
 
     save_sent(sent_products)
 
     if not found_any:
 
         send_message(
-            "ℹ️ Bot działa poprawnie, ale nie znaleziono nowych promocji Mitchell & Ness w rozmiarze M (-30% lub więcej)."
+            f"ℹ️ Bot działa poprawnie, ale nie znaleziono nowych promocji Mitchell & Ness w rozmiarze {TARGET_SIZE} (-30% lub więcej)."
         )
 
     browser.close()
+
+    print("BOT FINISHED")
