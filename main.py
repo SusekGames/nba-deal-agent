@@ -1,10 +1,16 @@
-from playwright.sync_api import sync_playwright
 import requests
+import json
 import os
 
 WEBHOOK = os.getenv("DISCORD_WEBHOOK")
 
-TEST_PRODUCT = "https://www.nbastore.eu/en/atlanta-hawks/atlanta-hawks-mitchell-and-ness-swingman-jersey-dikembe-mutombo-1996-97/t-36474995+p-67892188162142+z-9-3254539624"
+API_URL = "https://www.nbastore.eu/api/search"
+
+DB_FILE = "sent_products.json"
+
+TARGET_SIZES = ["S", "M"]
+
+MIN_DISCOUNT = 30
 
 def send_message(msg):
 
@@ -13,45 +19,151 @@ def send_message(msg):
         json={"content": msg}
     )
 
-    print("Discord status:", response.status_code)
+    print("Discord:", response.status_code)
 
-with sync_playwright() as p:
+def load_sent():
 
-    browser = p.chromium.launch(
-        headless=True,
-        args=[
-            "--disable-blink-features=AutomationControlled"
-        ]
-    )
+    try:
+        with open(DB_FILE, "r") as f:
+            return json.load(f)
 
-    context = browser.new_context(
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    )
+    except:
+        return []
 
-    page = context.new_page()
+def save_sent(data):
 
-    page.add_init_script("""
-Object.defineProperty(navigator, 'webdriver', {
-    get: () => undefined
-})
-""")
+    with open(DB_FILE, "w") as f:
+        json.dump(data, f)
 
-    print("Opening product page...")
+sent_products = load_sent()
 
-    page.goto(TEST_PRODUCT, timeout=60000)
+headers = {
+    "User-Agent":
+    "Mozilla/5.0"
+}
 
-    page.wait_for_timeout(10000)
+params = {
+    "query": "Mitchell and Ness jersey"
+}
 
-    body_text = page.locator("body").inner_text()
+print("Fetching products...")
 
-    print(body_text[:3000])
+response = requests.get(
+    API_URL,
+    headers=headers,
+    params=params,
+    timeout=30
+)
 
-    chunk = body_text[:1500]
+print("Status:", response.status_code)
+
+if response.status_code != 200:
 
     send_message(
-        f"DEBUG PAGE:\n\n{chunk}"
+        f"❌ NBA Store API Error: {response.status_code}"
     )
 
-    browser.close()
+    exit()
 
-    print("BOT FINISHED")
+try:
+
+    data = response.json()
+
+except Exception as e:
+
+    send_message(
+        f"❌ JSON ERROR: {e}"
+    )
+
+    exit()
+
+found_any = False
+
+products = data.get("products", [])
+
+print("Products found:", len(products))
+
+for product in products:
+
+    try:
+
+        name = product.get("name", "")
+
+        if "Mitchell" not in name:
+            continue
+
+        if "Jersey" not in name:
+            continue
+
+        current_price = float(
+            product.get("salePrice", 0)
+        )
+
+        old_price = float(
+            product.get("price", 0)
+        )
+
+        if old_price <= 0:
+            continue
+
+        discount = round(
+            100 - ((current_price / old_price) * 100),
+            2
+        )
+
+        if discount < MIN_DISCOUNT:
+            continue
+
+        available_sizes = product.get(
+            "availableSizes",
+            []
+        )
+
+        size_match = any(
+            size in TARGET_SIZES
+            for size in available_sizes
+        )
+
+        if not size_match:
+            continue
+
+        link = (
+            "https://www.nbastore.eu" +
+            product.get("url", "")
+        )
+
+        if link in sent_products:
+            continue
+
+        message = f"""
+🔥 NBA DEAL ALERT
+
+🏀 {name}
+
+📏 Sizes: {", ".join(available_sizes)}
+
+💸 {current_price}€
+📉 -{discount}%
+
+🔗 {link}
+"""
+
+        send_message(message)
+
+        sent_products.append(link)
+
+        found_any = True
+
+    except Exception as e:
+
+        print("ERROR:", e)
+
+save_sent(sent_products)
+
+if not found_any:
+
+    send_message(
+        "ℹ️ Bot działa poprawnie, ale nie znaleziono nowych promocji Mitchell & Ness."
+    )
+
+print("BOT FINISHED")
