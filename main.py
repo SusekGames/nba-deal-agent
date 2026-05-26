@@ -1,8 +1,9 @@
 from playwright.sync_api import sync_playwright
-from bs4 import BeautifulSoup
 import requests
 import os
 import json
+import re
+import time
 
 WEBHOOK = os.getenv("DISCORD_WEBHOOK")
 
@@ -44,62 +45,79 @@ with sync_playwright() as p:
 
     page.wait_for_timeout(10000)
 
-    soup = BeautifulSoup(
-        page.content(),
-        "html.parser"
+    links = page.locator("a").evaluate_all(
+        """elements => elements.map(el => ({
+            text: el.innerText,
+            href: el.href
+        }))"""
     )
-
-    products = soup.find_all("a")
 
     found_any = False
 
-    for product in products:
+    checked_links = []
 
-        text = product.get_text(" ", strip=True)
+    for item in links:
+
+        text = item["text"]
+        link = item["href"]
+
+        if not text:
+            continue
 
         if "Mitchell & Ness" not in text:
             continue
 
-        if "Men" not in text and "Jersey" not in text:
+        if "Jersey" not in text:
+            continue
+
+        if not link.startswith("http"):
+            continue
+
+        if link in checked_links:
+            continue
+
+        checked_links.append(link)
+
+        prices = re.findall(r'\d+[.,]?\d*', text)
+
+        prices = [
+            float(p.replace(",", "."))
+            for p in prices
+        ]
+
+        if len(prices) < 2:
+            continue
+
+        current_price = min(prices)
+        old_price = max(prices)
+
+        discount = round(
+            100 - ((current_price / old_price) * 100),
+            2
+        )
+
+        if discount < 30:
             continue
 
         try:
 
-            prices = []
+            product_page = browser.new_page()
 
-            for word in text.split():
+            product_page.goto(link, timeout=60000)
 
-                cleaned = (
-                    word.replace("€", "")
-                    .replace(",", ".")
-                )
+            product_page.wait_for_timeout(5000)
 
-                try:
-                    prices.append(float(cleaned))
-                except:
-                    pass
+            product_text = product_page.locator("body").inner_text()
 
-            if len(prices) < 2:
+            product_page.close()
+
+            if "Size:M" not in product_text and "\nM\n" not in product_text:
+                print(f"No M size: {link}")
                 continue
 
-            current_price = min(prices)
-            old_price = max(prices)
-
-            discount = round(
-                100 - ((current_price / old_price) * 100),
-                2
-            )
-
-            if discount < 30:
+            if "Out of Stock" in product_text:
+                print(f"Out of stock: {link}")
                 continue
-
-            link = product.get("href")
-
-            if not link:
-                continue
-
-            if link.startswith("/"):
-                link = "https://www.nbastore.eu" + link
 
             if link in sent_products:
                 continue
@@ -107,7 +125,9 @@ with sync_playwright() as p:
             message = f"""
 🔥 NBA DEAL ALERT
 
-🏀 {text[:150]}
+🏀 {text[:200]}
+
+📏 Size M Available
 
 💸 {current_price}€
 📉 -{discount}%
@@ -121,7 +141,10 @@ with sync_playwright() as p:
 
             found_any = True
 
+            time.sleep(2)
+
         except Exception as e:
+
             print(e)
 
     save_sent(sent_products)
@@ -129,7 +152,7 @@ with sync_playwright() as p:
     if not found_any:
 
         send_message(
-            "ℹ️ Bot działa poprawnie, ale nie znaleziono nowych promocji Mitchell & Ness -30%"
+            "ℹ️ Bot działa poprawnie, ale nie znaleziono nowych promocji Mitchell & Ness w rozmiarze M (-30% lub więcej)."
         )
 
     browser.close()
