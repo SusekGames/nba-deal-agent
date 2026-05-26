@@ -20,64 +20,20 @@ with sync_playwright() as p:
 
     page = browser.new_page()
 
+    print("Opening page...")
+
     page.goto(URL, timeout=60000)
 
-    page.wait_for_timeout(5000)
+    page.wait_for_timeout(10000)
 
-    soup = BeautifulSoup(page.content(), "lxml")
+    print("Page loaded")
 
-    products = soup.select(".product-card")
+    content = page.content()
 
-    for product in products:
+    print(content[:5000])
 
-        try:
+    soup = BeautifulSoup(content, "html.parser")
 
-            title = product.select_one(
-                ".product-card-title"
-            ).text.strip()
-
-            if "Mitchell & Ness" not in title:
-                continue
-
-            current_price = float(
-                product.select_one(".sales")
-                .text.replace("€", "")
-                .strip()
-            )
-
-            old_price = float(
-                product.select_one(".was-price")
-                .text.replace("€", "")
-                .strip()
-            )
-
-            discount = round(
-                100 - ((current_price / old_price) * 100),
-                2
-            )
-
-            if discount < 30:
-                continue
-
-            link = (
-                "https://www.nbastore.eu" +
-                product.select_one("a")["href"]
-            )
-
-            message = f'''
-🔥 NBA DEAL
-
-{title}
-
-💸 {current_price}€
-📉 -{discount}%
-
-🔗 {link}
-'''
-
-            send_message(message)
-
-        except:
-            continue
+    send_message("✅ BOT IS WORKING")
 
     browser.close()
